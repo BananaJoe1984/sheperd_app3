@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'meal_history.dart';
+import 'money.dart';
 
 class MealHistoryView extends StatelessWidget {
   const MealHistoryView({
@@ -59,8 +60,8 @@ class MealHistoryView extends StatelessWidget {
             title: Text(meal.name),
             subtitle: Text(
               '$date • ${meal.servings} servings\n'
-              '\$${meal.totalCost.toStringAsFixed(2)} total • '
-              '\$${meal.costPerServing.toStringAsFixed(2)} / serving',
+              '${formatMoney(meal.totalCents)} total • '
+              '${formatMoney(meal.perServingCents)} / serving',
             ),
             isThreeLine: true,
             trailing: const Icon(Icons.chevron_right),
@@ -89,9 +90,9 @@ class _MealDetail extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         Text(
-          '${meal.servings} servings • \$${meal.totalCost.toStringAsFixed(2)} total',
+          '${meal.servings} servings • ${formatMoney(meal.totalCents)} total',
         ),
-        Text('\$${meal.costPerServing.toStringAsFixed(2)} per serving'),
+        Text('${formatMoney(meal.perServingCents)} per serving'),
         const SizedBox(height: 16),
         for (final ingredient in meal.ingredients)
           Card(
@@ -103,9 +104,9 @@ class _MealDetail extends StatelessWidget {
               ),
               subtitle: Text(
                 '${ingredient.quantity} ${ingredient.unit} • '
-                'Price/unit: ${ingredient.price.isEmpty ? "0" : ingredient.price}',
+                'Price/unit: ${ingredient.price.isEmpty ? "0" : ingredient.price}\n'
+                '${formatMoney(ingredient.cents)}',
               ),
-              trailing: Text('\$${ingredient.cost.toStringAsFixed(2)}'),
             ),
           ),
       ],

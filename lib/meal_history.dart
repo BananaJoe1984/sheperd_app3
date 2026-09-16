@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'money.dart';
+
 /// A value snapshot, independent of the calculator's mutable input fields.
 class SavedIngredient {
   const SavedIngredient({
@@ -10,6 +12,7 @@ class SavedIngredient {
     required this.unit,
     required this.price,
     required this.cost,
+    this.preciseCents,
   });
 
   final String name;
@@ -17,6 +20,9 @@ class SavedIngredient {
   final String unit;
   final String price;
   final double cost;
+  final BigInt? preciseCents;
+  // Legacy snapshots contained a floating-point cost. Round them once on read.
+  BigInt get cents => preciseCents ?? BigInt.from((cost * 100).round());
 
   Map<String, Object> toJson() => {
     'name': name,
@@ -24,17 +30,25 @@ class SavedIngredient {
     'unit': unit,
     'price': price,
     'cost': cost,
+    'costCents': cents.toString(),
   };
 
   factory SavedIngredient.fromJson(Map<String, dynamic> json) {
     final cost = (json['cost'] as num).toDouble();
     if (!cost.isFinite || cost < 0) throw const FormatException('Invalid cost');
+    final cents = json['costCents'] == null
+        ? null
+        : BigInt.parse(json['costCents'] as String);
+    if (cents != null && cents < BigInt.zero) {
+      throw const FormatException('Invalid cents');
+    }
     return SavedIngredient(
       name: json['name'] as String,
       quantity: json['quantity'] as String,
       unit: json['unit'] as String,
       price: json['price'] as String,
       cost: cost,
+      preciseCents: cents,
     );
   }
 }
@@ -52,8 +66,11 @@ class SavedMeal {
   final int servings;
   final List<SavedIngredient> ingredients;
 
-  double get totalCost => ingredients.fold(0, (sum, item) => sum + item.cost);
-  double get costPerServing => totalCost / servings;
+  BigInt get totalCents =>
+      ingredients.fold(BigInt.zero, (sum, item) => sum + item.cents);
+  BigInt get perServingCents => servingCents(totalCents, servings);
+  double get totalCost => totalCents.toDouble() / 100;
+  double get costPerServing => perServingCents.toDouble() / 100;
 
   Map<String, Object> toJson() => {
     'name': name,

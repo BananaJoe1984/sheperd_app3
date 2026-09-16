@@ -35,6 +35,24 @@ For a device smoke test, save a named meal, fully close and reopen the app, open
 Previous Meals, and verify its ingredients and costs. Resetting the calculator
 should leave that saved meal available.
 
-Step 1 adds history only. Numeric validation, row reset/deletion state, unnamed-row
-consistency, responsive calculator layout, and exact currency rounding are tracked
-for the next checkpoint.
+## Calculator behavior (step 2)
+
+Only named ingredients contribute to totals, the shopping list and new snapshots.
+Unnamed rows display an exclusion notice. Named rows require a positive quantity
+and a nonnegative price (zero is allowed for free ingredients). Inputs accept up
+to twelve whole digits and six decimal places, using a decimal point. Fractions,
+currency symbols, separators, exponent notation, negative and non-finite values
+show validation errors. Servings must be a whole number from 1 to 999999.
+Invalid named rows display "Check inputs" instead of a misleading total and cannot
+be saved. Invalid servings suppress per-serving cost and block saving.
+
+Costs use exact decimal multiplication and integer cents. Each ingredient rounds
+half up to cents before totals are summed; per-serving cost also rounds half up.
+New snapshots store cents as strings to retain precision on web. Older snapshots
+remain readable; their stored row costs are rounded to cents for consistent totals.
+
+Ingredient fields retain their values when rows are deleted or the screen resizes.
+Reset creates fresh empty inputs. Narrow screens and large text stack fields and
+wrap summaries. Regression tests cover these behaviors, including 320px width,
+double-size text, rounding boundaries, and history compatibility. Full feature
+coverage remains the separate step 3 checkpoint.

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'meal_history.dart';
 import 'meal_history_view.dart';
+import 'money.dart';
 
 const List<String> _unitOptions = [
   'unit',
@@ -31,16 +32,14 @@ class Ingredient {
   String price;
   bool inCart;
 
-  double get cost {
-    final qty = double.tryParse(quantity) ?? 0;
-    final pricePerUnit = double.tryParse(price) ?? 0;
-
-    if (qty <= 0 || pricePerUnit <= 0) {
-      return 0;
-    }
-
-    return qty * pricePerUnit;
-  }
+  bool get named => name.trim().isNotEmpty;
+  bool get started =>
+      named || quantity.trim().isNotEmpty || price.trim().isNotEmpty;
+  String? get quantityError => decimalError(quantity, positive: true);
+  String? get priceError => decimalError(price, positive: false);
+  bool get valid => quantityError == null && priceError == null;
+  BigInt get cents => valid ? ingredientCents(quantity, price) : BigInt.zero;
+  double get cost => cents.toDouble() / 100;
 }
 
 class MealCostCalculatorScreen extends StatefulWidget {
@@ -99,8 +98,10 @@ class _MealCostCalculatorScreenState extends State<MealCostCalculatorScreen>
       _showMessage('Add at least one named ingredient before saving.');
       return;
     }
-    if (!_totalCost.isFinite) {
-      _showMessage('Enter finite quantities and prices before saving.');
+    if (_servings == null || !_validMeal) {
+      _showMessage(
+        'Correct the highlighted quantities, prices and servings before saving.',
+      );
       return;
     }
     final meal = SavedMeal(
@@ -108,14 +109,8 @@ class _MealCostCalculatorScreenState extends State<MealCostCalculatorScreen>
           ? 'Untitled meal'
           : _mealNameController.text.trim(),
       savedAt: DateTime.now(),
-      servings: _servings,
-      ingredients: _ingredients
-          .where(
-            (i) =>
-                i.name.trim().isNotEmpty ||
-                i.quantity.trim().isNotEmpty ||
-                i.price.trim().isNotEmpty,
-          )
+      servings: _servings!,
+      ingredients: _namedIngredients
           .map(
             (i) => SavedIngredient(
               name: i.name,
@@ -123,6 +118,7 @@ class _MealCostCalculatorScreenState extends State<MealCostCalculatorScreen>
               unit: i.unit,
               price: i.price,
               cost: i.cost,
+              preciseCents: i.cents,
             ),
           )
           .toList(),
@@ -157,23 +153,18 @@ class _MealCostCalculatorScreenState extends State<MealCostCalculatorScreen>
     Ingredient(),
   ];
 
-  double get _totalCost => _ingredients.fold(0, (sum, ing) => sum + ing.cost);
-
-  int get _servings {
-    final value = int.tryParse(_servingsController.text) ?? 1;
-    return value < 1 ? 1 : value;
-  }
-
-  double get _costPerServing => _totalCost / _servings;
-
+  BigInt get _totalCents =>
+      _namedIngredients.fold(BigInt.zero, (sum, i) => sum + i.cents);
+  int? get _servings => parseServings(_servingsController.text);
+  bool get _validMeal => _namedIngredients.every((i) => i.valid);
   List<Ingredient> get _namedIngredients =>
-      _ingredients.where((ing) => ing.name.trim().isNotEmpty).toList();
-
+      _ingredients.where((i) => i.named).toList();
   int get _ingredientCount => _namedIngredients.length;
-
-  double get _remainingCost => _namedIngredients
+  BigInt get _remainingCents => _namedIngredients
       .where((i) => !i.inCart)
-      .fold(0, (sum, i) => sum + i.cost);
+      .fold(BigInt.zero, (sum, i) => sum + i.cents);
+  bool get _validRemaining =>
+      _namedIngredients.where((i) => !i.inCart).every((i) => i.valid);
 
   int get _cartCheckedCount => _namedIngredients.where((i) => i.inCart).length;
 
@@ -211,8 +202,14 @@ class _MealCostCalculatorScreenState extends State<MealCostCalculatorScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Grocery Meal Cost Calculator'),
+        title: const Text(
+          'Grocery Meal Cost Calculator',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
         bottom: TabBar(
+          isScrollable: true,
+          tabAlignment: TabAlignment.center,
           controller: _tabController,
           tabs: const [
             Tab(icon: Icon(Icons.calculate_outlined), text: 'Calculator'),
@@ -242,7 +239,6 @@ class _MealCostCalculatorScreenState extends State<MealCostCalculatorScreen>
 
   Widget _buildCalculatorTab(BuildContext context) {
     final theme = Theme.of(context);
-    String currency(double v) => '\$${v.toStringAsFixed(2)}';
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
@@ -261,31 +257,29 @@ class _MealCostCalculatorScreenState extends State<MealCostCalculatorScreen>
         Card(
           child: Padding(
             padding: const EdgeInsets.all(20),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: _ResponsiveFields(
+              breakpoint: 600,
               children: [
-                Expanded(
-                  flex: 2,
-                  child: TextField(
-                    controller: _mealNameController,
-                    decoration: const InputDecoration(
-                      labelText: 'Meal name',
-                      hintText: 'e.g. Chicken Stir Fry',
-                      prefixIcon: Icon(Icons.restaurant_menu),
-                    ),
+                TextField(
+                  controller: _mealNameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Meal name',
+                    hintText: 'e.g. Chicken Stir Fry',
+                    prefixIcon: Icon(Icons.restaurant_menu),
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: TextField(
-                    controller: _servingsController,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Servings',
-                      prefixIcon: Icon(Icons.people_outline),
-                    ),
-                    onChanged: (_) => setState(() {}),
+                TextField(
+                  controller: _servingsController,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    errorText: _servings == null
+                        ? 'Enter a whole number from 1 to 999999.'
+                        : null,
+                    errorMaxLines: 3,
+                    labelText: 'Servings',
+                    prefixIcon: Icon(Icons.people_outline),
                   ),
+                  onChanged: (_) => setState(() {}),
                 ),
               ],
             ),
@@ -299,12 +293,18 @@ class _MealCostCalculatorScreenState extends State<MealCostCalculatorScreen>
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text('Ingredients', style: theme.textTheme.titleMedium),
+                const Text(
+                  'Only named ingredients are included in totals, shopping and saved meals.',
+                ),
                 const SizedBox(height: 12),
                 for (int i = 0; i < _ingredients.length; i++) ...[
                   _IngredientRow(
+                    key: ObjectKey(_ingredients[i]),
                     ingredient: _ingredients[i],
                     onChanged: () => setState(() {}),
-                    onRemove: () => _removeIngredient(i),
+                    onRemove: _ingredients.length > 1
+                        ? () => _removeIngredient(i)
+                        : null,
                   ),
                   if (i != _ingredients.length - 1) const Divider(height: 28),
                 ],
@@ -328,16 +328,22 @@ class _MealCostCalculatorScreenState extends State<MealCostCalculatorScreen>
             padding: const EdgeInsets.all(20),
             child: Column(
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 24,
+                  runSpacing: 16,
                   children: [
                     _SummaryItem(
                       label: 'Total meal cost',
-                      value: currency(_totalCost),
+                      value: _validMeal
+                          ? formatMoney(_totalCents)
+                          : 'Check inputs',
                     ),
                     _SummaryItem(
                       label: 'Cost / serving',
-                      value: currency(_costPerServing),
+                      value: _validMeal && _servings != null
+                          ? formatMoney(servingCents(_totalCents, _servings!))
+                          : 'Check inputs',
                     ),
                     _SummaryItem(
                       label: 'Ingredients',
@@ -399,8 +405,10 @@ class _MealCostCalculatorScreenState extends State<MealCostCalculatorScreen>
           color: theme.colorScheme.primaryContainer.withValues(alpha: 0.35),
           child: Padding(
             padding: const EdgeInsets.all(20),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            child: Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 24,
+              runSpacing: 16,
               children: [
                 _SummaryItem(
                   label: 'In cart',
@@ -408,7 +416,9 @@ class _MealCostCalculatorScreenState extends State<MealCostCalculatorScreen>
                 ),
                 _SummaryItem(
                   label: 'Remaining cost',
-                  value: '\$${_remainingCost.toStringAsFixed(2)}',
+                  value: _validRemaining
+                      ? formatMoney(_remainingCents)
+                      : 'Check inputs',
                 ),
               ],
             ),
@@ -435,54 +445,83 @@ class _MealCostCalculatorScreenState extends State<MealCostCalculatorScreen>
   }
 }
 
+/// Wrap keeps fields keyed and mounted when the window crosses a breakpoint.
+class _ResponsiveFields extends StatelessWidget {
+  const _ResponsiveFields({required this.children, this.breakpoint = 850});
+  final List<Widget> children;
+  final double breakpoint;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final wide =
+          constraints.maxWidth >= breakpoint &&
+          MediaQuery.textScalerOf(context).scale(1) <= 1.3;
+      final width = wide
+          ? (constraints.maxWidth - 12 * (children.length - 1)) /
+                children.length
+          : constraints.maxWidth;
+      return Wrap(
+        spacing: 12,
+        runSpacing: 12,
+        children: [
+          for (int i = 0; i < children.length; i++)
+            SizedBox(key: ValueKey(i), width: width, child: children[i]),
+        ],
+      );
+    },
+  );
+}
+
 class _IngredientRow extends StatelessWidget {
   const _IngredientRow({
+    super.key,
     required this.ingredient,
     required this.onChanged,
     required this.onRemove,
   });
-
   final Ingredient ingredient;
   final VoidCallback onChanged;
-  final VoidCallback onRemove;
+  final VoidCallback? onRemove;
 
   @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Expanded(
-          flex: 3,
-          child: TextFormField(
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      _ResponsiveFields(
+        children: [
+          TextFormField(
             initialValue: ingredient.name,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'Ingredient',
               isDense: true,
+              helperText: ingredient.started && !ingredient.named
+                  ? 'Unnamed: excluded from totals'
+                  : null,
+              helperMaxLines: 2,
             ),
             onChanged: (v) {
               ingredient.name = v;
               onChanged();
             },
           ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          flex: 2,
-          child: TextFormField(
+          TextFormField(
             initialValue: ingredient.quantity,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(labelText: 'Qty', isDense: true),
+            decoration: InputDecoration(
+              labelText: 'Qty',
+              isDense: true,
+              errorText: ingredient.started ? ingredient.quantityError : null,
+              errorMaxLines: 3,
+            ),
             onChanged: (v) {
               ingredient.quantity = v;
               onChanged();
             },
           ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          flex: 2,
-          child: DropdownButtonFormField<String>(
+          DropdownButtonFormField<String>(
             initialValue: ingredient.unit,
+            isExpanded: true,
             decoration: const InputDecoration(labelText: 'Unit', isDense: true),
             items: _unitOptions
                 .map((u) => DropdownMenuItem(value: u, child: Text(u)))
@@ -492,40 +531,43 @@ class _IngredientRow extends StatelessWidget {
               onChanged();
             },
           ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          flex: 2,
-          child: TextFormField(
+          TextFormField(
             initialValue: ingredient.price,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'Price/unit',
               isDense: true,
+              errorText: ingredient.started ? ingredient.priceError : null,
+              errorMaxLines: 3,
             ),
             onChanged: (v) {
               ingredient.price = v;
               onChanged();
             },
           ),
-        ),
-        const SizedBox(width: 8),
-        SizedBox(
-          width: 64,
-          child: Text(
-            '\$${ingredient.cost.toStringAsFixed(2)}',
-            textAlign: TextAlign.right,
-            style: const TextStyle(fontWeight: FontWeight.w600),
+        ],
+      ),
+      Row(
+        children: [
+          Expanded(
+            child: Text(
+              !ingredient.named
+                  ? 'Not included'
+                  : ingredient.valid
+                  ? formatMoney(ingredient.cents)
+                  : 'Check inputs',
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
           ),
-        ),
-        IconButton(
-          icon: const Icon(Icons.close, color: Colors.red),
-          tooltip: 'Remove ingredient',
-          onPressed: onRemove,
-        ),
-      ],
-    );
-  }
+          IconButton(
+            icon: const Icon(Icons.close),
+            tooltip: 'Remove ingredient',
+            onPressed: onRemove,
+          ),
+        ],
+      ),
+    ],
+  );
 }
 
 class _ShoppingListTile extends StatelessWidget {
@@ -556,12 +598,17 @@ class _ShoppingListTile extends StatelessWidget {
           color: ingredient.inCart ? theme.colorScheme.outline : null,
         ),
       ),
-      subtitle: qtyLabel.isEmpty ? null : Text(qtyLabel),
-      secondary: Text(
-        '\$${ingredient.cost.toStringAsFixed(2)}',
-        style: theme.textTheme.bodyMedium?.copyWith(
-          fontWeight: FontWeight.w600,
-        ),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (qtyLabel.isNotEmpty) Text(qtyLabel),
+          Text(
+            ingredient.valid ? formatMoney(ingredient.cents) : 'Check inputs',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }

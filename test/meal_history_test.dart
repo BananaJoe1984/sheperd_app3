@@ -165,6 +165,8 @@ void main() {
     await tester.tap(find.text('Save meal'));
     await tester.pumpAndSettle();
     expect(find.text('Meal saved on this device.'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
     await tester.enterText(field('Ingredient').first, 'Changed');
     await tester.enterText(field('Price/unit').first, '99');
     await tester.ensureVisible(find.text('Reset'));
