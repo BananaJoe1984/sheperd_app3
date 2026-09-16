@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import 'meal_history.dart';
+import 'meal_history_view.dart';
+
 const List<String> _unitOptions = [
   'unit',
   'g',
@@ -29,32 +32,130 @@ class Ingredient {
   bool inCart;
 
   double get cost {
-  final qty = double.tryParse(quantity) ?? 0;
-  final pricePerUnit = double.tryParse(price) ?? 0;
+    final qty = double.tryParse(quantity) ?? 0;
+    final pricePerUnit = double.tryParse(price) ?? 0;
 
-  if (qty <= 0 || pricePerUnit <= 0) {
-    return 0;
+    if (qty <= 0 || pricePerUnit <= 0) {
+      return 0;
+    }
+
+    return qty * pricePerUnit;
   }
-
-  return qty * pricePerUnit;
-}
 }
 
 class MealCostCalculatorScreen extends StatefulWidget {
-  const MealCostCalculatorScreen({super.key});
+  const MealCostCalculatorScreen({super.key, this.historyRepository});
+
+  final MealHistoryRepository? historyRepository;
 
   @override
-  State<MealCostCalculatorScreen> createState() => _MealCostCalculatorScreenState();
+  State<MealCostCalculatorScreen> createState() =>
+      _MealCostCalculatorScreenState();
 }
 
 class _MealCostCalculatorScreenState extends State<MealCostCalculatorScreen>
     with SingleTickerProviderStateMixin {
-  late final TabController _tabController = TabController(length: 2, vsync: this);
+  late final TabController _tabController = TabController(
+    length: 3,
+    vsync: this,
+  );
+  late final MealHistoryRepository _historyRepository =
+      widget.historyRepository ?? MealHistoryRepository();
+  List<SavedMeal> _savedMeals = [];
+  bool _historyLoading = true;
+  bool _historyError = false;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadHistory();
+  }
+
+  Future<void> _loadHistory() async {
+    setState(() {
+      _historyLoading = true;
+      _historyError = false;
+    });
+    try {
+      final meals = await _historyRepository.load();
+      if (!mounted) return;
+      setState(() {
+        _savedMeals = meals;
+        _historyLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _historyError = true;
+        _historyLoading = false;
+      });
+    }
+  }
+
+  Future<void> _saveMeal() async {
+    if (_saving || _historyLoading || _historyError) return;
+    if (_namedIngredients.isEmpty) {
+      _showMessage('Add at least one named ingredient before saving.');
+      return;
+    }
+    if (!_totalCost.isFinite) {
+      _showMessage('Enter finite quantities and prices before saving.');
+      return;
+    }
+    final meal = SavedMeal(
+      name: _mealNameController.text.trim().isEmpty
+          ? 'Untitled meal'
+          : _mealNameController.text.trim(),
+      savedAt: DateTime.now(),
+      servings: _servings,
+      ingredients: _ingredients
+          .where(
+            (i) =>
+                i.name.trim().isNotEmpty ||
+                i.quantity.trim().isNotEmpty ||
+                i.price.trim().isNotEmpty,
+          )
+          .map(
+            (i) => SavedIngredient(
+              name: i.name,
+              quantity: i.quantity,
+              unit: i.unit,
+              price: i.price,
+              cost: i.cost,
+            ),
+          )
+          .toList(),
+    );
+    final updated = [meal, ..._savedMeals];
+    setState(() => _saving = true);
+    try {
+      await _historyRepository.save(updated);
+      if (!mounted) return;
+      setState(() => _savedMeals = updated);
+      _showMessage('Meal saved on this device.');
+    } catch (_) {
+      if (mounted) _showMessage('Could not save meal. Please try again.');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+  }
 
   final TextEditingController _mealNameController = TextEditingController();
-  final TextEditingController _servingsController = TextEditingController(text: '4');
+  final TextEditingController _servingsController = TextEditingController(
+    text: '4',
+  );
 
-  final List<Ingredient> _ingredients = [Ingredient(), Ingredient(), Ingredient()];
+  final List<Ingredient> _ingredients = [
+    Ingredient(),
+    Ingredient(),
+    Ingredient(),
+  ];
 
   double get _totalCost => _ingredients.fold(0, (sum, ing) => sum + ing.cost);
 
@@ -70,8 +171,9 @@ class _MealCostCalculatorScreenState extends State<MealCostCalculatorScreen>
 
   int get _ingredientCount => _namedIngredients.length;
 
-  double get _remainingCost =>
-      _namedIngredients.where((i) => !i.inCart).fold(0, (sum, i) => sum + i.cost);
+  double get _remainingCost => _namedIngredients
+      .where((i) => !i.inCart)
+      .fold(0, (sum, i) => sum + i.cost);
 
   int get _cartCheckedCount => _namedIngredients.where((i) => i.inCart).length;
 
@@ -80,12 +182,13 @@ class _MealCostCalculatorScreenState extends State<MealCostCalculatorScreen>
   }
 
   void _removeIngredient(int index) {
-  if (_ingredients.length > 1) {
-    setState(() {
-      _ingredients.removeAt(index);
-    });
+    if (_ingredients.length > 1) {
+      setState(() {
+        _ingredients.removeAt(index);
+      });
+    }
   }
-}
+
   void _resetAll() {
     setState(() {
       _mealNameController.clear();
@@ -113,7 +216,11 @@ class _MealCostCalculatorScreenState extends State<MealCostCalculatorScreen>
           controller: _tabController,
           tabs: const [
             Tab(icon: Icon(Icons.calculate_outlined), text: 'Calculator'),
-            Tab(icon: Icon(Icons.shopping_cart_outlined), text: 'Shopping List'),
+            Tab(
+              icon: Icon(Icons.shopping_cart_outlined),
+              text: 'Shopping List',
+            ),
+            Tab(icon: Icon(Icons.history), text: 'Previous Meals'),
           ],
         ),
       ),
@@ -122,6 +229,12 @@ class _MealCostCalculatorScreenState extends State<MealCostCalculatorScreen>
         children: [
           _buildCalculatorTab(context),
           _buildShoppingListTab(context),
+          MealHistoryView(
+            meals: _savedMeals,
+            loading: _historyLoading,
+            hasError: _historyError,
+            onRetry: _loadHistory,
+          ),
         ],
       ),
     );
@@ -129,11 +242,22 @@ class _MealCostCalculatorScreenState extends State<MealCostCalculatorScreen>
 
   Widget _buildCalculatorTab(BuildContext context) {
     final theme = Theme.of(context);
-    final currency = (double v) => '\$${v.toStringAsFixed(2)}';
+    String currency(double v) => '\$${v.toStringAsFixed(2)}';
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
       children: [
+        Align(
+          alignment: Alignment.centerRight,
+          child: FilledButton.icon(
+            onPressed: _historyLoading || _historyError || _saving
+                ? null
+                : _saveMeal,
+            icon: const Icon(Icons.save_outlined),
+            label: Text(_saving ? 'Saving...' : 'Save meal'),
+          ),
+        ),
+        const SizedBox(height: 12),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(20),
@@ -207,9 +331,18 @@ class _MealCostCalculatorScreenState extends State<MealCostCalculatorScreen>
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    _SummaryItem(label: 'Total meal cost', value: currency(_totalCost)),
-                    _SummaryItem(label: 'Cost / serving', value: currency(_costPerServing)),
-                    _SummaryItem(label: 'Ingredients', value: '$_ingredientCount'),
+                    _SummaryItem(
+                      label: 'Total meal cost',
+                      value: currency(_totalCost),
+                    ),
+                    _SummaryItem(
+                      label: 'Cost / serving',
+                      value: currency(_costPerServing),
+                    ),
+                    _SummaryItem(
+                      label: 'Ingredients',
+                      value: '$_ingredientCount',
+                    ),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -240,12 +373,18 @@ class _MealCostCalculatorScreenState extends State<MealCostCalculatorScreen>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.shopping_cart_outlined, size: 56, color: theme.colorScheme.outline),
+              Icon(
+                Icons.shopping_cart_outlined,
+                size: 56,
+                color: theme.colorScheme.outline,
+              ),
               const SizedBox(height: 12),
               Text(
                 'Add named ingredients in the Calculator tab to build your shopping list.',
                 textAlign: TextAlign.center,
-                style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.outline),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.outline,
+                ),
               ),
             ],
           ),
@@ -263,7 +402,10 @@ class _MealCostCalculatorScreenState extends State<MealCostCalculatorScreen>
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                _SummaryItem(label: 'In cart', value: '$_cartCheckedCount / ${items.length}'),
+                _SummaryItem(
+                  label: 'In cart',
+                  value: '$_cartCheckedCount / ${items.length}',
+                ),
                 _SummaryItem(
                   label: 'Remaining cost',
                   value: '\$${_remainingCost.toStringAsFixed(2)}',
@@ -282,7 +424,8 @@ class _MealCostCalculatorScreenState extends State<MealCostCalculatorScreen>
                   ingredient: items[i],
                   onChanged: () => setState(() {}),
                 ),
-                if (i != items.length - 1) const Divider(height: 1, indent: 16, endIndent: 16),
+                if (i != items.length - 1)
+                  const Divider(height: 1, indent: 16, endIndent: 16),
               ],
             ],
           ),
@@ -312,7 +455,10 @@ class _IngredientRow extends StatelessWidget {
           flex: 3,
           child: TextFormField(
             initialValue: ingredient.name,
-            decoration: const InputDecoration(labelText: 'Ingredient', isDense: true),
+            decoration: const InputDecoration(
+              labelText: 'Ingredient',
+              isDense: true,
+            ),
             onChanged: (v) {
               ingredient.name = v;
               onChanged();
@@ -353,7 +499,10 @@ class _IngredientRow extends StatelessWidget {
           child: TextFormField(
             initialValue: ingredient.price,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(labelText: 'Price/unit', isDense: true),
+            decoration: const InputDecoration(
+              labelText: 'Price/unit',
+              isDense: true,
+            ),
             onChanged: (v) {
               ingredient.price = v;
               onChanged();
@@ -388,9 +537,10 @@ class _ShoppingListTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final qtyLabel = [ingredient.quantity, ingredient.unit]
-        .where((s) => s.trim().isNotEmpty)
-        .join(' ');
+    final qtyLabel = [
+      ingredient.quantity,
+      ingredient.unit,
+    ].where((s) => s.trim().isNotEmpty).join(' ');
 
     return CheckboxListTile(
       value: ingredient.inCart,
@@ -409,7 +559,9 @@ class _ShoppingListTile extends StatelessWidget {
       subtitle: qtyLabel.isEmpty ? null : Text(qtyLabel),
       secondary: Text(
         '\$${ingredient.cost.toStringAsFixed(2)}',
-        style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+        style: theme.textTheme.bodyMedium?.copyWith(
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }
@@ -428,9 +580,9 @@ class _SummaryItem extends StatelessWidget {
         Text(
           value,
           style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                color: Theme.of(context).colorScheme.primary,
-                fontWeight: FontWeight.bold,
-              ),
+            color: Theme.of(context).colorScheme.primary,
+            fontWeight: FontWeight.bold,
+          ),
         ),
         const SizedBox(height: 4),
         Text(label, style: Theme.of(context).textTheme.bodySmall),
