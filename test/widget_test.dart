@@ -6,19 +6,12 @@
 // tree, read text, and verify that the values of widget properties are correct.
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
-import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
 
 import 'package:sheperd_app3/main.dart';
 
 void main() {
-  setUp(() {
-    SharedPreferencesAsyncPlatform.instance =
-        InMemorySharedPreferencesAsync.empty();
-  });
   testWidgets('Meal cost calculator loads', (WidgetTester tester) async {
     await tester.pumpWidget(const MyApp());
-    await tester.pumpAndSettle();
 
     expect(find.text('Grocery Meal Cost Calculator'), findsOneWidget);
     expect(find.text('Add ingredient'), findsOneWidget);
