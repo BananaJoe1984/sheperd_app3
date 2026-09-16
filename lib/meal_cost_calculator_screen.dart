@@ -14,12 +14,19 @@ const List<String> _unitOptions = [
 ];
 
 class Ingredient {
-  Ingredient({this.name = '', this.quantity = '', this.unit = 'unit', this.price = ''});
+  Ingredient({
+    this.name = '',
+    this.quantity = '',
+    this.unit = 'unit',
+    this.price = '',
+    this.inCart = false,
+  });
 
   String name;
   String quantity;
   String unit;
   String price;
+  bool inCart;
 
   double get cost {
     final qty = double.tryParse(quantity) ?? 0;
@@ -35,7 +42,10 @@ class MealCostCalculatorScreen extends StatefulWidget {
   State<MealCostCalculatorScreen> createState() => _MealCostCalculatorScreenState();
 }
 
-class _MealCostCalculatorScreenState extends State<MealCostCalculatorScreen> {
+class _MealCostCalculatorScreenState extends State<MealCostCalculatorScreen>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabController = TabController(length: 2, vsync: this);
+
   final TextEditingController _mealNameController = TextEditingController();
   final TextEditingController _servingsController = TextEditingController(text: '4');
 
@@ -50,7 +60,15 @@ class _MealCostCalculatorScreenState extends State<MealCostCalculatorScreen> {
 
   double get _costPerServing => _totalCost / _servings;
 
-  int get _ingredientCount => _ingredients.where((ing) => ing.name.trim().isNotEmpty).length;
+  List<Ingredient> get _namedIngredients =>
+      _ingredients.where((ing) => ing.name.trim().isNotEmpty).toList();
+
+  int get _ingredientCount => _namedIngredients.length;
+
+  double get _remainingCost =>
+      _namedIngredients.where((i) => !i.inCart).fold(0, (sum, i) => sum + i.cost);
+
+  int get _cartCheckedCount => _namedIngredients.where((i) => i.inCart).length;
 
   void _addIngredient() {
     setState(() => _ingredients.add(Ingredient()));
@@ -72,6 +90,7 @@ class _MealCostCalculatorScreenState extends State<MealCostCalculatorScreen> {
 
   @override
   void dispose() {
+    _tabController.dispose();
     _mealNameController.dispose();
     _servingsController.dispose();
     super.dispose();
@@ -79,105 +98,188 @@ class _MealCostCalculatorScreenState extends State<MealCostCalculatorScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final currency = (double v) => '\$${v.toStringAsFixed(2)}';
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Grocery Meal Cost Calculator'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-      ),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      flex: 2,
-                      child: TextField(
-                        controller: _mealNameController,
-                        decoration: const InputDecoration(
-                          labelText: 'Meal name',
-                          hintText: 'e.g. Chicken Stir Fry',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextField(
-                        controller: _servingsController,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'Servings',
-                          border: OutlineInputBorder(),
-                        ),
-                        onChanged: (_) => setState(() {}),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    for (int i = 0; i < _ingredients.length; i++) ...[
-                      _IngredientRow(
-                        ingredient: _ingredients[i],
-                        onChanged: () => setState(() {}),
-                        onRemove: () => _removeIngredient(i),
-                      ),
-                      const Divider(height: 24),
-                    ],
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: TextButton.icon(
-                        onPressed: _addIngredient,
-                        icon: const Icon(Icons.add),
-                        label: const Text('Add ingredient'),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        _SummaryItem(label: 'Total meal cost', value: currency(_totalCost)),
-                        _SummaryItem(label: 'Cost per serving', value: currency(_costPerServing)),
-                        _SummaryItem(label: 'Ingredients', value: '$_ingredientCount'),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        TextButton(onPressed: _resetAll, child: const Text('Reset')),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: const [
+            Tab(icon: Icon(Icons.calculate_outlined), text: 'Calculator'),
+            Tab(icon: Icon(Icons.shopping_cart_outlined), text: 'Shopping List'),
           ],
         ),
       ),
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          _buildCalculatorTab(context),
+          _buildShoppingListTab(context),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCalculatorTab(BuildContext context) {
+    final theme = Theme.of(context);
+    final currency = (double v) => '\$${v.toStringAsFixed(2)}';
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+      children: [
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  flex: 2,
+                  child: TextField(
+                    controller: _mealNameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Meal name',
+                      hintText: 'e.g. Chicken Stir Fry',
+                      prefixIcon: Icon(Icons.restaurant_menu),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    controller: _servingsController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Servings',
+                      prefixIcon: Icon(Icons.people_outline),
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text('Ingredients', style: theme.textTheme.titleMedium),
+                const SizedBox(height: 12),
+                for (int i = 0; i < _ingredients.length; i++) ...[
+                  _IngredientRow(
+                    ingredient: _ingredients[i],
+                    onChanged: () => setState(() {}),
+                    onRemove: () => _removeIngredient(i),
+                  ),
+                  if (i != _ingredients.length - 1) const Divider(height: 28),
+                ],
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: FilledButton.tonalIcon(
+                    onPressed: _addIngredient,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add ingredient'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Card(
+          color: theme.colorScheme.primaryContainer.withValues(alpha: 0.35),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _SummaryItem(label: 'Total meal cost', value: currency(_totalCost)),
+                    _SummaryItem(label: 'Cost / serving', value: currency(_costPerServing)),
+                    _SummaryItem(label: 'Ingredients', value: '$_ingredientCount'),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: _resetAll,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Reset'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildShoppingListTab(BuildContext context) {
+    final theme = Theme.of(context);
+    final items = _namedIngredients;
+
+    if (items.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.shopping_cart_outlined, size: 56, color: theme.colorScheme.outline),
+              const SizedBox(height: 12),
+              Text(
+                'Add named ingredients in the Calculator tab to build your shopping list.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.outline),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+      children: [
+        Card(
+          color: theme.colorScheme.primaryContainer.withValues(alpha: 0.35),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _SummaryItem(label: 'In cart', value: '$_cartCheckedCount / ${items.length}'),
+                _SummaryItem(
+                  label: 'Remaining cost',
+                  value: '\$${_remainingCost.toStringAsFixed(2)}',
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Card(
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            children: [
+              for (int i = 0; i < items.length; i++) ...[
+                _ShoppingListTile(
+                  ingredient: items[i],
+                  onChanged: () => setState(() {}),
+                ),
+                if (i != items.length - 1) const Divider(height: 1, indent: 16, endIndent: 16),
+              ],
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -265,6 +367,42 @@ class _IngredientRow extends StatelessWidget {
           onPressed: onRemove,
         ),
       ],
+    );
+  }
+}
+
+class _ShoppingListTile extends StatelessWidget {
+  const _ShoppingListTile({required this.ingredient, required this.onChanged});
+
+  final Ingredient ingredient;
+  final VoidCallback onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final qtyLabel = [ingredient.quantity, ingredient.unit]
+        .where((s) => s.trim().isNotEmpty)
+        .join(' ');
+
+    return CheckboxListTile(
+      value: ingredient.inCart,
+      onChanged: (v) {
+        ingredient.inCart = v ?? false;
+        onChanged();
+      },
+      controlAffinity: ListTileControlAffinity.leading,
+      title: Text(
+        ingredient.name,
+        style: theme.textTheme.bodyLarge?.copyWith(
+          decoration: ingredient.inCart ? TextDecoration.lineThrough : null,
+          color: ingredient.inCart ? theme.colorScheme.outline : null,
+        ),
+      ),
+      subtitle: qtyLabel.isEmpty ? null : Text(qtyLabel),
+      secondary: Text(
+        '\$${ingredient.cost.toStringAsFixed(2)}',
+        style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+      ),
     );
   }
 }
