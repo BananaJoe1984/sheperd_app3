@@ -80,9 +80,12 @@ class _MealCostCalculatorScreenState extends State<MealCostCalculatorScreen>
   }
 
   void _removeIngredient(int index) {
-    setState(() => _ingredients.removeAt(index));
+  if (_ingredients.length > 1) {
+    setState(() {
+      _ingredients.removeAt(index);
+    });
   }
-
+}
   void _resetAll() {
     setState(() {
       _mealNameController.clear();
