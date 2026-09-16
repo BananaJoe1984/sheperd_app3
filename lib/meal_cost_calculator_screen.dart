@@ -29,10 +29,15 @@ class Ingredient {
   bool inCart;
 
   double get cost {
-    final qty = double.tryParse(quantity) ?? 0;
-    final pricePerUnit = double.tryParse(price) ?? 0;
-    return qty * pricePerUnit;
+  final qty = double.tryParse(quantity) ?? 0;
+  final pricePerUnit = double.tryParse(price) ?? 0;
+
+  if (qty <= 0 || pricePerUnit <= 0) {
+    return 0;
   }
+
+  return qty * pricePerUnit;
+}
 }
 
 class MealCostCalculatorScreen extends StatefulWidget {
