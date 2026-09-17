@@ -13,9 +13,14 @@ final class TestStorage extends InMemorySharedPreferencesAsync {
   bool failRead = false;
   bool failWrite = false;
   Completer<void>? writeGate;
+  Completer<void>? readGate;
 
   @override
-  Future<String?> getString(String key, SharedPreferencesOptions options) {
+  Future<String?> getString(
+    String key,
+    SharedPreferencesOptions options,
+  ) async {
+    await readGate?.future;
     if (failRead) throw StateError('Read failed');
     return super.getString(key, options);
   }
@@ -73,6 +78,49 @@ void main() {
   setUp(() {
     storage = TestStorage();
     SharedPreferencesAsyncPlatform.instance = storage;
+  });
+
+  testWidgets(
+    'loading disables save and late load completion survives disposal',
+    (tester) async {
+      storage.readGate = Completer<void>();
+      await tester.pumpWidget(
+        const MaterialApp(home: MealCostCalculatorScreen()),
+      );
+      await tester.pump();
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.widgetWithText(FilledButton, 'Save meal'),
+            )
+            .onPressed,
+        isNull,
+      );
+      await tester.tap(find.text('Previous Meals'));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+      storage.readGate!.complete();
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('pending save finishes after screen disposal without UI errors', (
+    tester,
+  ) async {
+    await openApp(tester);
+    await enterMeal(tester);
+    storage.writeGate = Completer<void>();
+    await tester.tap(find.text('Save meal'));
+    await tester.pump();
+    await tester.pumpWidget(const SizedBox());
+    storage.writeGate!.complete();
+    await tester.pumpAndSettle();
+    expect((await MealHistoryRepository().load()).single.name, 'Rice bowl');
+    expect(tester.takeException(), isNull);
   });
 
   test('new storage has no history', () async {

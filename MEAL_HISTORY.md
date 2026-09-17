@@ -54,5 +54,5 @@ remain readable; their stored row costs are rounded to cents for consistent tota
 Ingredient fields retain their values when rows are deleted or the screen resizes.
 Reset creates fresh empty inputs. Narrow screens and large text stack fields and
 wrap summaries. Regression tests cover these behaviors, including 320px width,
-double-size text, rounding boundaries, and history compatibility. Full feature
-coverage remains the separate step 3 checkpoint.
+double-size text, rounding boundaries, and history compatibility. See
+[TESTING.md](TESTING.md) for the complete feature-test matrix and run commands.
